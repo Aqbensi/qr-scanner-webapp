@@ -35,6 +35,21 @@
             display: block;
             border: 1px solid red;
         }
+        #controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        button {
+            background-color: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #ffffff);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+        }
         #result {
             margin-top: 20px;
             font-size: 1.1em;
@@ -53,6 +68,9 @@
         <div id="scanner-container">
             <video id="video" width="500" height="375" playsinline></video>
         </div>
+        <div id="controls">
+            <button id="switchCameraButton" disabled>Переключить камеру</button>
+        </div>
         <div id="result">Инициализация...</div>
          <p id="version-info">Версия: 0.03</p>
     </div>
@@ -62,9 +80,13 @@
         tg.expand();
 
         const videoElement = document.getElementById('video');
+        const switchCameraButton = document.getElementById('switchCameraButton');
         const resultElement = document.getElementById('result');
         let codeReader;
         let stream;
+        let videoDevices = [];
+        let currentDeviceId = null;
+        let currentDeviceIndex = -1;
 
         function stopStreaming() {
             if (stream) {
@@ -80,7 +102,7 @@
             videoElement.srcObject = null;
         }
 
-        async function startScanning() {
+        async function startScanning(deviceId) {
             stopStreaming();
 
             console.log('Начало функции startScanning');
@@ -89,8 +111,16 @@
             try {
                 console.log('Вызов navigator.mediaDevices.getUserMedia({ video: true }) или с facingMode: user');
                 const constraints = {
-                    video: true
+                    video: {
+                        deviceId: deviceId ? { exact: deviceId } : undefined
+                    }
                 };
+
+                if (!deviceId) {
+                    constraints.video.facingMode = 'user';
+                } else {
+                    delete constraints.video.facingMode;
+                }
 
                 stream = await navigator.mediaDevices.getUserMedia(constraints);
 
