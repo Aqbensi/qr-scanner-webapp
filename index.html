@@ -102,20 +102,15 @@
             resultElement.textContent = 'Запрос доступа к камере...';
 
             try {
-                // Запрашиваем доступ к камере по deviceId или используем facingMode
                 const constraints = {
                     video: {
                         deviceId: deviceId ? { exact: deviceId } : undefined
                     }
                 };
 
-                // Если deviceId не указан (первый запуск), пробуем сначала 'user', потом 'environment'
-                if (!deviceId) {
-                    constraints.video.facingMode = 'user'; // Сначала фронтальная
-                } else {
-                    // Если deviceId указан, facingMode не используем
-                    delete constraints.video.facingMode;
-                }
+                // Если deviceId не указан (что не должно происходить после успешного window.onload),
+                // или если facingMode нужен для каких-то специфических устройств, можно добавить fallback
+                // Но в идеале deviceId должен быть определен в window.onload
 
                 stream = await navigator.mediaDevices.getUserMedia(constraints);
 
@@ -128,15 +123,17 @@
 
                 // Отображаем видеопоток
                 videoElement.srcObject = stream;
-                
+
                 // Ждем загрузки метаданных видео
                 videoElement.onloadedmetadata = () => {
                     resultElement.textContent = 'Метаданные видео загружены, запуск воспроизведения...';
                     videoElement.play();
 
                     // Находим имя текущей камеры для отображения
-                    const activeDevice = videoDevices.find(dev => dev.deviceId === (deviceId || stream.getVideoTracks()[0].getSettings().deviceId));
-                    const cameraName = activeDevice ? (activeDevice.label || `Камера ${currentDeviceIndex + 1}`) : 'Неизвестная камера';
+                    // Используем deviceId из stream settings, так как он точный после успешного getUserMedia
+                    const actualDeviceId = stream.getVideoTracks()[0].getSettings().deviceId;
+                    const activeDevice = videoDevices.find(dev => dev.deviceId === actualDeviceId);
+                    const cameraName = activeDevice ? (activeDevice.label || `Камера ${videoDevices.findIndex(dev => dev.deviceId === actualDeviceId) + 1}`) : 'Неизвестная камера';
 
                     resultElement.textContent = `Наведите камеру на штрих-код или QR-код (${cameraName})`;
 
@@ -159,91 +156,18 @@
 
             } catch (error) {
                 console.error('Ошибка при доступе к камере или запуске сканера:', error);
-                resultElement.textContent = `Ошибка: ${error.name} - ${error.message}`;
+                resultElement.textContent = `Ошибка при запуске камеры: ${error.name} - ${error.message}`;
                 tg.showAlert(`Не удалось получить доступ к камере: ${error.message}. Попробуйте использовать другое устройство или обновить Telegram.`);
-
-                // Если первая попытка (с facingMode или deviceId) не удалась, попробуем просто запросить любую камеру как fallback
-                if (!deviceId || error.name === 'OverconstrainedError' || error.name === 'NotFoundError') {
-                    // Если ошибка при запросе 'environment' или конкретного deviceId, или просто первый запуск не удался
-                    // и мы еще не пробовали общий запрос
-                    if (!deviceId && error.name === 'OverconstrainedError' && error.message.includes('facingMode')) {
-                        // Специфическая ошибка для facingMode, пробуем общую
-                        resultElement.textContent = 'Ошибка с facingMode, пробуем любую доступную...';
-                    } else if (deviceId && (error.name === 'OverconstrainedError' || error.name === 'NotFoundError')) {
-                        // Ошибка с конкретным deviceId
-                        resultElement.textContent = 'Ошибка с выбранной камерой, пробуем любую доступную...';
-                    } else {
-                        // Другая ошибка при первом запросе или при запросе по deviceId
-                        resultElement.textContent = `Не удалось получить доступ к камере. Ошибка: ${error.name}. Пробуем другую камеру...`;
-                    }
-
-                    try {
-                        // Пробуем запросить любую камеру без конкретных ограничений
-                        navigator.mediaDevices.getUserMedia({ video: true }).then(fallbackStream => {
-                            stream = fallbackStream;
-                            // Повторяем логику отображения и сканирования для fallback
-                            // Находим deviceId fallback камеры
-                            const fallbackDeviceId = stream.getVideoTracks()[0].getSettings().deviceId;
-                            const fallbackDevice = videoDevices.find(dev => dev.deviceId === fallbackDeviceId);
-                            const fallbackCameraName = fallbackDevice ? (fallbackDevice.label || 'Камера (fallback)') : 'Неизвестная камера (fallback)';
-
-                            videoElement.srcObject = stream;
-                            videoElement.onloadedmetadata = () => {
-                                resultElement.textContent = `Камера по умолчанию доступна, запуск сканирования... (${fallbackCameraName})`;
-                                videoElement.play();
-                                resultElement.textContent = `Наведите камеру на штрих-код или QR-код (${fallbackCameraName})`;
-                                // Инициализируем сканер, если нужно
-                                if (!codeReader) {
-                                    codeReader = new ZXing.BrowserMultiFormatReader();
-                                }
-                                codeReader.decodeFromStream(stream, videoElement, (result, error) => {
-                                    if (result) {
-                                        console.log('Отсканировано:', result.getText());
-                                        resultElement.textContent = `Отсканировано: ${result.getText()}`;
-                                        tg.sendData(result.getText());
-                                        tg.close();
-                                    }
-                                    if (error && !(error instanceof ZXing.NotFoundException)) {
-                                        console.error(error);
-                                    }
-                                });
-                            };
-                            // Обновляем currentDeviceId и currentDeviceIndex для fallback камеры
-                            currentDeviceId = fallbackDeviceId;
-                            currentDeviceIndex = videoDevices.findIndex(dev => dev.deviceId === fallbackDeviceId);
-
-                            // Включаем кнопку переключения, если после fallback найдено несколько устройств
-                            if (videoDevices.length > 1) {
-                                switchCameraButton.disabled = false;
-                            } else {
-                                switchCameraButton.disabled = true;
-                            }
-
-                        }).catch(fallbackError => {
-                            console.error('Ошибка при попытке получить любую камеру:', fallbackError);
-                            resultElement.textContent = `Ошибка: ${fallbackError.name} - ${fallbackError.message}. Камера недоступна.`;
-                            tg.showAlert(`Не удалось получить доступ даже к камере по умолчанию: ${fallbackError.message}`);
-                            switchCameraButton.disabled = true; // Отключаем кнопку, если нет доступных камер
-                        });
-                    } catch (anotherError) {
-                        console.error('Непредвиденная ошибка при попытке fallback:', anotherError);
-                        resultElement.textContent = `Непредвиденная ошибка при fallback: ${anotherError.name} - ${anotherError.message}. Камера недоступна.`;
-                        tg.showAlert(`Непредвиденная ошибка при fallback: ${anotherError.message}`);
-                        switchCameraButton.disabled = true; // Отключаем кнопку
-                    }
-                } else {
-                    // Если ошибка не связана с facingMode или deviceId, просто выводим alert и отключаем кнопку
-                    tg.showAlert(`Не удалось получить доступ к камере: ${error.message}. Попробуйте использовать другое устройство или обновить Telegram.`);
-                    switchCameraButton.disabled = true;
-                }
+                 switchCameraButton.disabled = true; // Отключаем кнопку при ошибке
             }
         }
 
-        // Получаем список камер при загрузке и запускаем сканирование с первой (фронтальной по возможности)
+        // Получаем список камер при загрузке и запускаем сканирование с основной (задней) по возможности
         window.onload = async () => {
             resultElement.textContent = 'Поиск доступных камер...';
             try {
                 // Запрашиваем разрешение до перечисления, это может помочь получить labels
+                // Используем video: true для запроса любых видео устройств
                 await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
 
                 const devices = await navigator.mediaDevices.enumerateDevices();
@@ -257,32 +181,40 @@
                     return;
                 }
 
-                // Определяем, с какой камеры начать:
-                // 1. Пробуем найти камеру с facingMode = 'user' (фронтальная)
-                const userCamera = videoDevices.find(device => device.getCapabilities().facingMode && device.getCapabilities().facingMode.includes('user'));
-
                 let deviceToStartId = null;
 
-                if (userCamera) {
-                    deviceToStartId = userCamera.deviceId;
-                    currentDeviceIndex = videoDevices.findIndex(dev => dev.deviceId === deviceToStartId);
-                    console.log('Найдена фронтальная камера, начинаем с нее:', userCamera);
-                } else {
-                    // 2. Если 'user' не найдена, пробуем найти 'environment' (задняя)
-                    const environmentCamera = videoDevices.find(device => device.getCapabilities().facingMode && device.getCapabilities().facingMode.includes('environment'));
+                // Определяем, с какой камеры начать:
+                // 1. Пробуем найти камеру с facingMode = 'environment' (задняя)
+                const environmentCamera = videoDevices.find(device => 
+                    device.getCapabilities && 
+                    device.getCapabilities().facingMode && 
+                    device.getCapabilities().facingMode.includes('environment')
+                );
 
-                    if (environmentCamera) {
-                        deviceToStartId = environmentCamera.deviceId;
-                        currentDeviceIndex = videoDevices.findIndex(dev => dev.deviceId === deviceToStartId);
-                        console.log('Фронтальная камера не найдена, найдена задняя, начинаем с нее:', environmentCamera);
+                if (environmentCamera) {
+                    deviceToStartId = environmentCamera.deviceId;
+                    console.log('Найдена задняя камера, начинаем с нее:', environmentCamera);
+                } else {
+                    // 2. Если 'environment' не найдена, пробуем найти 'user' (фронтальная)
+                    const userCamera = videoDevices.find(device => 
+                        device.getCapabilities && 
+                        device.getCapabilities().facingMode && 
+                        device.getCapabilities().facingMode.includes('user')
+                    );
+
+                    if (userCamera) {
+                        deviceToStartId = userCamera.deviceId;
+                        console.log('Задняя камера не найдена, найдена фронтальная, начинаем с нее:', userCamera);
                     } else {
-                        // 3. Если ни user, ни environment не найдены/поддерживаются, берем первую попавшуюся
+                        // 3. Если ни environment, ни user не найдены/поддерживаются, берем первую попавшуюся
                         deviceToStartId = videoDevices[0].deviceId;
-                        currentDeviceIndex = 0;
                         console.log('Facing modes не найдены, начинаем с первой камеры:', videoDevices[0]);
                     }
                 }
-                currentDeviceId = deviceToStartId;
+
+                // Находим индекс выбранной камеры для использования в логике переключения
+                currentDeviceIndex = videoDevices.findIndex(dev => dev.deviceId === deviceToStartId);
+                currentDeviceId = deviceToStartId; // Сохраняем deviceId текущей камеры
 
                 startScanning(currentDeviceId);
 
@@ -297,7 +229,7 @@
                 console.error('Ошибка при перечислении устройств или первом запросе:', error);
                 resultElement.textContent = `Ошибка при поиске или первом запросе камеры: ${error.name} - ${error.message}`;
                 tg.showAlert(`Не удалось получить список камер или первую камеру: ${error.message}`);
-                switchCameraButton.disabled = true;
+                switchCameraButton.disabled = true; // Отключаем кнопку при ошибке
             }
         };
 
