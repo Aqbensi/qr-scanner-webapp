@@ -96,45 +96,52 @@
             videoElement.srcObject = null; // Очищаем srcObject видеоэлемента
         }
 
-        async function startScanning(constraints) {
+        async function startScanning() {
             stopStreaming(); // Останавливаем предыдущий поток, если есть
 
+            console.log('Начало функции startScanning');
             resultElement.textContent = 'Запрос доступа к камере...';
 
             try {
-                // Используем переданные ограничения (например, facingMode)
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                console.log('Вызов navigator.mediaDevices.getUserMedia({ video: true })');
+                // Запрос доступа к любой доступной видеокамере
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
 
+                console.log('Доступ к камере получен');
                 resultElement.textContent = 'Доступ к камере получен, подготовка видеопотока...';
 
                 // Инициализируем сканер, если он еще не инициализирован
                 if (!codeReader) {
+                    console.log('Инициализация ZXing.BrowserMultiFormatReader');
                     codeReader = new ZXing.BrowserMultiFormatReader();
                 }
 
                 // Отображаем видеопоток
+                console.log('Установка videoElement.srcObject');
                 videoElement.srcObject = stream;
 
                 // Ждем загрузки метаданных видео
                 videoElement.onloadedmetadata = () => {
-                    resultElement.textContent = 'Метаданные видео загружены, запуск воспроизведения...';
+                    console.log('Метаданные видео загружены, запуск воспроизведения');
                     videoElement.play();
 
-                    // Отображаем, какая камера используется (если возможно определить facingMode)
+                    // Получаем информацию о камере (если доступно)
                     const settings = stream.getVideoTracks()[0].getSettings();
                     let cameraInfo = 'Камера';
-                    if (settings.facingMode) {
+                    if (settings.label) {
+                         cameraInfo = settings.label;
+                    } else if (settings.facingMode) {
                          cameraInfo = settings.facingMode === 'user' ? 'Фронтальная камера' : 'Задняя камера';
-                    } else if (settings.label) {
-                        cameraInfo = settings.label;
                     }
 
+                    console.log(`Видео воспроизводится. Используется: ${cameraInfo}`);
                     resultElement.textContent = `Наведите камеру на штрих-код или QR-код (${cameraInfo})`;
 
                     // Начинаем декодирование видеопотока
+                    console.log('Запуск декодирования из видеопотока');
                     codeReader.decodeFromStream(stream, videoElement, (result, error) => {
                         if (result) {
-                            console.log('Отсканировано:', result.getText());
+                            console.log('Отсканировано успешно:', result.getText());
                             resultElement.textContent = `Отсканировано: ${result.getText()}`;
                             // Отправляем данные обратно в бот
                             tg.sendData(result.getText());
@@ -143,55 +150,36 @@
                         }
                         // Не показываем alert на каждую ошибку сканирования (например, NotFoundException)
                         if (error && !(error instanceof ZXing.NotFoundException)) {
-                            console.error(error);
+                            console.error('Ошибка сканирования:', error);
                         }
                     });
                 };
 
+                 videoElement.onerror = (event) => {
+                     console.error('Ошибка видеоэлемента:', event);
+                     resultElement.textContent = 'Ошибка видеопотока.';
+                 };
+
+
             } catch (error) {
                 console.error('Ошибка при доступе к камере:', error);
                 resultElement.textContent = `Ошибка при доступе к камере: ${error.name} - ${error.message}`;
-                // В случае ошибки, window.onload попытается использовать другой вариант
-                throw error; // Перебрасываем ошибку, чтобы window.onload мог ее поймать
+                tg.showAlert(`Не удалось получить доступ к камере: ${error.message}. Пожалуйста, проверьте разрешения.`);
+                // Временно отключаем кнопку при ошибке, т.к. переключение сейчас не реализовано
+                 switchCameraButton.disabled = true; 
             }
+             console.log('Конец функции startScanning');
         }
 
-        // Получаем доступ к камере при загрузке: сначала задняя, потом фронтальная, потом любая
+        // Запускаем сканирование при загрузке страницы
         window.onload = async () => {
-            resultElement.textContent = 'Поиск доступных камер...';
-            // Отключаем кнопку переключения, так как пока не будем перечислять все устройства
+             console.log('Начало window.onload');
+            resultElement.textContent = 'Инициализация...';
+             // Временно отключаем кнопку переключения
             switchCameraButton.disabled = true; 
-
-            try {
-                // 1. Пробуем заднюю камеру
-                console.log('Попытка запуска задней камеры...');
-                await startScanning({ video: { facingMode: 'environment' } });
-
-            } catch (envError) {
-                console.error('Не удалось запустить заднюю камеру:', envError);
-                resultElement.textContent = 'Задняя камера не найдена или недоступна, пробуем фронтальную...';
-
-                try {
-                    // 2. Пробуем фронтальную камеру
-                     console.log('Попытка запуска фронтальной камеры...');
-                    await startScanning({ video: { facingMode: 'user' } });
-
-                } catch (userError) {
-                    console.error('Не удалось запустить фронтальную камеру:', userError);
-                    resultElement.textContent = 'Фронтальная камера не найдена или недоступна, пробуем любую доступную...';
-
-                    try {
-                         // 3. Пробуем любую доступную камеру
-                         console.log('Попытка запуска любой доступной камеры...');
-                        await startScanning({ video: true });
-
-                    } catch (anyError) {
-                        console.error('Не удалось получить доступ ни к одной камере:', anyError);
-                        resultElement.textContent = `Ошибка: ${anyError.name} - ${anyError.message}. Камера недоступна.`;
-                        tg.showAlert(`Не удалось получить доступ к камере: ${anyError.message}. Пожалуйста, проверьте разрешения.`);
-                    }
-                }
-            }
+            videoDevices = []; // Очищаем список устройств, т.к. не используем перечисление пока
+            startScanning();
+             console.log('Конец window.onload');
         };
 
         // Обработчик нажатия кнопки переключения камеры - временно отключен
@@ -199,6 +187,7 @@
 
         // Привязываем остановку потока к событиям закрытия веб-приложения
         function setupCleanupEvents() {
+             console.log('Настройка обработчиков cleanup событий');
             tg.onEvent('mainButtonBackPressed', stopStreaming);
             tg.onEvent('viewportChanged', stopStreaming);
             window.addEventListener('beforeunload', stopStreaming);
