@@ -47,7 +47,7 @@
         <div id="scanner-container">
             <video id="video" width="500" height="375"></video>
         </div>
-        <div id="result">Запуск сканера...</div>
+        <div id="result">Инициализация...</div>
     </div>
 
     <script>
@@ -60,24 +60,28 @@
         let stream;
 
         async function startScanning() {
-            resultElement.textContent = 'Запуск камеры...';
+            resultElement.textContent = 'Запрос доступа к камере...';
             try {
                 // Запрашиваем доступ к основной (средовой) камере
-                // Если не получится, попробуем просто запросить любое видеоустройство
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: 'environment'
                     }
                 });
 
+                resultElement.textContent = 'Доступ к камере получен, подготовка видеопотока...';
+
                 // Если получили поток, инициализируем сканер
                 codeReader = new ZXing.BrowserMultiFormatReader();
 
                 // Отображаем видеопоток
                 videoElement.srcObject = stream;
-                // Убедимся, что видео полностью загружено перед началом сканирования
+                
+                // Ждем загрузки метаданных видео
                 videoElement.onloadedmetadata = () => {
+                    resultElement.textContent = 'Метаданные видео загружены, запуск воспроизведения...';
                     videoElement.play();
+
                     resultElement.textContent = 'Наведите камеру на штрих-код или QR-код';
                     // Начинаем декодирование видеопотока
                     codeReader.decodeFromStream(stream, videoElement, (result, error) => {
@@ -99,34 +103,46 @@
             } catch (error) {
                 console.error('Ошибка при доступе к камере или запуске сканера:', error);
                 resultElement.textContent = `Ошибка: ${error.name} - ${error.message}`;
-                tg.showAlert(`Не удалось получить доступ к камере: ${error.message}`);
-                // Если ошибка из-за facingMode, можно попробовать запросить любую камеру
+                tg.showAlert(`Не удалось получить доступ к камере: ${error.message}. Попробуйте использовать другое устройство или обновить Telegram.`);
+
+                // Если ошибка из-за facingMode, попробуем запросить любую камеру как fallback
                 if (error.name === 'OverconstrainedError' || error.name === 'NotFoundError') {
+                    resultElement.textContent = 'Ошибка с основной камерой, пробуем любую доступную...';
                     try {
-                        stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                        // Повторяем логику отображения и сканирования для fallback
-                        videoElement.srcObject = stream;
-                        videoElement.onloadedmetadata = () => {
-                            videoElement.play();
-                            resultElement.textContent = 'Наведите камеру на штрих-код или QR-код (используется камера по умолчанию)';
-                            codeReader = new ZXing.BrowserMultiFormatReader();
-                            codeReader.decodeFromStream(stream, videoElement, (result, error) => {
-                                if (result) {
-                                    console.log('Отсканировано:', result.getText());
-                                    resultElement.textContent = `Отсканировано: ${result.getText()}`;
-                                    tg.sendData(result.getText());
-                                    tg.close();
-                                }
-                                if (error && !(error instanceof ZXing.NotFoundException)) {
-                                    console.error(error);
-                                }
-                            });
-                        };
-                    } catch (fallbackError) {
-                        console.error('Ошибка при попытке получить камеру по умолчанию:', fallbackError);
-                        resultElement.textContent = `Ошибка: ${fallbackError.name} - ${fallbackError.message}`;
-                        tg.showAlert(`Не удалось получить доступ даже к камере по умолчанию: ${fallbackError.message}`);
+                        navigator.mediaDevices.getUserMedia({ video: true }).then(fallbackStream => {
+                            stream = fallbackStream;
+                            // Повторяем логику отображения и сканирования для fallback
+                            videoElement.srcObject = stream;
+                            videoElement.onloadedmetadata = () => {
+                                resultElement.textContent = 'Камера по умолчанию доступна, запуск сканирования...';
+                                videoElement.play();
+                                resultElement.textContent = 'Наведите камеру на штрих-код или QR-код (используется камера по умолчанию)';
+                                codeReader = new ZXing.BrowserMultiFormatReader();
+                                codeReader.decodeFromStream(stream, videoElement, (result, error) => {
+                                    if (result) {
+                                        console.log('Отсканировано:', result.getText());
+                                        resultElement.textContent = `Отсканировано: ${result.getText()}`;
+                                        tg.sendData(result.getText());
+                                        tg.close();
+                                    }
+                                    if (error && !(error instanceof ZXing.NotFoundException)) {
+                                        console.error(error);
+                                    }
+                                });
+                            };
+                        }).catch(fallbackError => {
+                            console.error('Ошибка при попытке получить камеру по умолчанию:', fallbackError);
+                            resultElement.textContent = `Ошибка: ${fallbackError.name} - ${fallbackError.message}`;
+                            tg.showAlert(`Не удалось получить доступ даже к камере по умолчанию: ${fallbackError.message}`);
+                        });
+                    } catch (anotherError) {
+                        console.error('Непредвиденная ошибка при попытке fallback:', anotherError);
+                        resultElement.textContent = `Непредвиденная ошибка при fallback: ${anotherError.name} - ${anotherError.message}`;
+                        tg.showAlert(`Непредвиденная ошибка при fallback: ${anotherError.message}`);
                     }
+                } else {
+                    // Если ошибка не связана с facingMode, просто выводим ее
+                    tg.showAlert(`Не удалось получить доступ к камере: ${error.message}. Попробуйте использовать другое устройство или обновить Telegram.`);
                 }
             }
         }
