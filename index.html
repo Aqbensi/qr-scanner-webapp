@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR Scanner</title>
+    <title>QR/Barcode Scanner</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://unpkg.com/@telegram-apps/sdk@3.0.0/dist/index.js"></script>
+    <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -13,13 +13,28 @@
             padding: 20px;
             background-color: var(--tg-theme-bg-color, #ffffff);
             color: var(--tg-theme-text-color, #000000);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
         .container {
             max-width: 600px;
+            width: 100%;
             margin: 0 auto;
             text-align: center;
         }
-        button {
+        #scanner-container {
+            width: 100%;
+            max-width: 500px;
+            position: relative;
+            margin-bottom: 20px;
+        }
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        #startButton {
             background-color: var(--tg-theme-button-color, #2481cc);
             color: var(--tg-theme-button-text-color, #ffffff);
             border: none;
@@ -29,55 +44,111 @@
             cursor: pointer;
             margin: 10px 0;
         }
-        button:disabled {
-            opacity: 0.7;
-            cursor: not-allowed;
+        #result {
+            margin-top: 20px;
+            font-size: 1.1em;
+            word-wrap: break-word;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>QR Scanner</h1>
-        <button id="scanButton">Сканировать QR-код</button>
+        <h1>Сканер штрих-кодов и QR-кодов</h1>
+        <div id="scanner-container">
+            <video id="video" width="500" height="375"></video>
+        </div>
+        <button id="startButton">Начать сканирование</button>
+        <div id="result"></div>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
 
-        document.getElementById('scanButton').addEventListener('click', async () => {
-            console.log('Кнопка сканирования нажата');
+        const videoElement = document.getElementById('video');
+        const startButton = document.getElementById('startButton');
+        const resultElement = document.getElementById('result');
+        let codeReader;
+        let stream;
+
+        startButton.addEventListener('click', async () => {
+            resultElement.textContent = 'Запуск камеры...';
             try {
-                // Добавляем небольшую задержку
-                await new Promise(resolve => setTimeout(resolve, 100));
+                // Проверяем наличие медиаустройств
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
 
-                console.log('Проверка доступности qrScanner:', window.qrScanner);
-                console.log('Проверка доступности qrScanner.open:', window.qrScanner ? window.qrScanner.open : 'undefined');
-                console.log('Проверка доступности qrScanner.open.isAvailable:', window.qrScanner && window.qrScanner.open ? window.qrScanner.open.isAvailable : 'undefined');
-
-                if (window.qrScanner && window.qrScanner.open && window.qrScanner.open.isAvailable && window.qrScanner.open.isAvailable()) {
-                    console.log('QR-сканер доступен, открываем...');
-                    const promise = window.qrScanner.open({
-                        text: 'Наведите камеру на QR-код',
-                        onCaptured(qr) {
-                            console.log('QR-код отсканирован:', qr);
-                            // Отправляем данные обратно в бот
-                            tg.sendData(qr);
-                            // Закрываем веб-приложение Telegram после отправки данных
-                            tg.close();
-                        }
-                    });
-                    await promise; // Ожидаем закрытия сканера
-                    console.log('Сканер закрыт');
-                } else {
-                    console.error('QR-сканер недоступен или не инициализирован');
-                    tg.showAlert('QR-сканер недоступен или не инициализирован на вашем устройстве');
+                if (videoDevices.length === 0) {
+                    resultElement.textContent = 'Камера не найдена.';
+                    tg.showAlert('Камера не найдена на вашем устройстве.');
+                    return;
                 }
+
+                // Инициализируем сканер
+                codeReader = new ZXing.BrowserMultiFormatReader();
+
+                // Запрашиваем доступ к камере (используем первый видеовход)
+                stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: videoDevices[0].deviceId } });
+
+                // Отображаем видеопоток
+                videoElement.srcObject = stream;
+                videoElement.play();
+
+                resultElement.textContent = 'Наведите камеру на штрих-код или QR-код';
+                startButton.style.display = 'none'; // Скрываем кнопку после запуска
+
+                // Начинаем декодирование видеопотока
+                codeReader.decodeFromStream(stream, videoElement, (result, error) => {
+                    if (result) {
+                        console.log('Отсканировано:', result.getText());
+                        resultElement.textContent = `Отсканировано: ${result.getText()}`;
+                        // Отправляем данные обратно в бот
+                        tg.sendData(result.getText());
+                        // Можно закрыть веб-приложение после первого успешного сканирования
+                        tg.close();
+                    }
+                    if (error && !(error instanceof ZXing.NotFoundException)) {
+                        console.error(error);
+                        //resultElement.textContent = `Ошибка сканирования: ${error}`;
+                        // Не показываем alert на каждую ошибку сканирования (например, NotFoundException)
+                    }
+                });
+
             } catch (error) {
-                console.error('Ошибка при открытии QR-сканера:', error);
-                tg.showAlert('Произошла ошибка при открытии QR-сканера');
+                console.error('Ошибка при доступе к камере или запуске сканера:', error);
+                resultElement.textContent = `Ошибка: ${error}`;
+                tg.showAlert(`Не удалось получить доступ к камере: ${error}`);
             }
         });
+
+        // Останавливаем камеру и сканирование при закрытии веб-приложения
+        tg.onEvent('mainButtonBackPressed', () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            if (codeReader) {
+                codeReader.reset();
+            }
+        });
+        tg.onEvent('viewportChanged', () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            if (codeReader) {
+                codeReader.reset();
+            }
+        });
+
+        // Возможно, также нужно остановить при других событиях закрытия
+        window.addEventListener('beforeunload', () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            if (codeReader) {
+                codeReader.reset();
+            }
+        });
+
     </script>
 </body>
 </html> 
