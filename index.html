@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Scanner</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://unpkg.com/@telegram-apps/sdk@3.0.0/dist/index.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        button {
+            background-color: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #ffffff);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>QR Scanner</h1>
+        <button id="scanButton">Сканировать QR-код</button>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        document.getElementById('scanButton').addEventListener('click', async () => {
+            try {
+                if (window.qrScanner.open.isAvailable()) {
+                    const promise = window.qrScanner.open({
+                        text: 'Наведите камеру на QR-код',
+                        onCaptured(qr) {
+                            // Отправляем данные обратно в бот
+                            tg.sendData(qr);
+                            // Закрываем сканер
+                            window.qrScanner.close();
+                        }
+                    });
+                    await promise;
+                } else {
+                    tg.showAlert('QR-сканер недоступен на вашем устройстве');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                tg.showAlert('Произошла ошибка при сканировании QR-кода');
+            }
+        });
+    </script>
+</body>
+</html> 
