@@ -46,11 +46,21 @@
         tg.expand();
 
         document.getElementById('scanButton').addEventListener('click', async () => {
+            console.log('Кнопка сканирования нажата');
             try {
+                // Добавляем небольшую задержку
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                console.log('Проверка доступности qrScanner:', window.qrScanner);
+                console.log('Проверка доступности qrScanner.open:', window.qrScanner ? window.qrScanner.open : 'undefined');
+                console.log('Проверка доступности qrScanner.open.isAvailable:', window.qrScanner && window.qrScanner.open ? window.qrScanner.open.isAvailable : 'undefined');
+
                 if (window.qrScanner && window.qrScanner.open && window.qrScanner.open.isAvailable && window.qrScanner.open.isAvailable()) {
+                    console.log('QR-сканер доступен, открываем...');
                     const promise = window.qrScanner.open({
                         text: 'Наведите камеру на QR-код',
                         onCaptured(qr) {
+                            console.log('QR-код отсканирован:', qr);
                             // Отправляем данные обратно в бот
                             tg.sendData(qr);
                             // Закрываем веб-приложение Telegram после отправки данных
@@ -58,11 +68,13 @@
                         }
                     });
                     await promise; // Ожидаем закрытия сканера
+                    console.log('Сканер закрыт');
                 } else {
+                    console.error('QR-сканер недоступен или не инициализирован');
                     tg.showAlert('QR-сканер недоступен или не инициализирован на вашем устройстве');
                 }
             } catch (error) {
-                console.error('Error:', error);
+                console.error('Ошибка при открытии QR-сканера:', error);
                 tg.showAlert('Произошла ошибка при открытии QR-сканера');
             }
         });
