@@ -67,6 +67,7 @@
             <button id="switchCameraButton" disabled>Переключить камеру</button>
         </div>
         <div id="result">Инициализация...</div>
+        <p id="version-info" style="font-size: 0.8em; color: var(--tg-theme-hint-color, #888); margin-top: 10px;">Версия: 0.01</p>
     </div>
 
     <script>
@@ -120,9 +121,9 @@
                 console.log('Установка videoElement.srcObject');
                 videoElement.srcObject = stream;
 
-                // Ждем загрузки метаданных видео
-                videoElement.onloadedmetadata = () => {
-                    console.log('Метаданные видео загружены, запуск воспроизведения');
+                // Ждем загрузки данных видео или готовности к воспроизведению
+                videoElement.addEventListener('loadeddata', () => {
+                    console.log('Данные видео загружены');
                     videoElement.play();
 
                     // Получаем информацию о камере (если доступно)
@@ -153,7 +154,7 @@
                             console.error('Ошибка сканирования:', error);
                         }
                     });
-                };
+                }, { once: true }); // Обработчик выполнится только один раз
 
                  videoElement.onerror = (event) => {
                      console.error('Ошибка видеоэлемента:', event);
