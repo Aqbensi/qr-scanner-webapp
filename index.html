@@ -47,23 +47,23 @@
 
         document.getElementById('scanButton').addEventListener('click', async () => {
             try {
-                if (window.qrScanner.open.isAvailable()) {
+                if (window.qrScanner && window.qrScanner.open && window.qrScanner.open.isAvailable && window.qrScanner.open.isAvailable()) {
                     const promise = window.qrScanner.open({
                         text: 'Наведите камеру на QR-код',
                         onCaptured(qr) {
                             // Отправляем данные обратно в бот
                             tg.sendData(qr);
-                            // Закрываем сканер
-                            window.qrScanner.close();
+                            // Закрываем веб-приложение Telegram после отправки данных
+                            tg.close();
                         }
                     });
-                    await promise;
+                    await promise; // Ожидаем закрытия сканера
                 } else {
-                    tg.showAlert('QR-сканер недоступен на вашем устройстве');
+                    tg.showAlert('QR-сканер недоступен или не инициализирован на вашем устройстве');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                tg.showAlert('Произошла ошибка при сканировании QR-кода');
+                tg.showAlert('Произошла ошибка при открытии QR-сканера');
             }
         });
     </script>
