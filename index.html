@@ -34,16 +34,6 @@
             height: auto;
             display: block;
         }
-        #startButton {
-            background-color: var(--tg-theme-button-color, #2481cc);
-            color: var(--tg-theme-button-text-color, #ffffff);
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 16px;
-            cursor: pointer;
-            margin: 10px 0;
-        }
         #result {
             margin-top: 20px;
             font-size: 1.1em;
@@ -57,8 +47,7 @@
         <div id="scanner-container">
             <video id="video" width="500" height="375"></video>
         </div>
-        <button id="startButton">Начать сканирование</button>
-        <div id="result"></div>
+        <div id="result">Запуск сканера...</div>
     </div>
 
     <script>
@@ -66,88 +55,103 @@
         tg.expand();
 
         const videoElement = document.getElementById('video');
-        const startButton = document.getElementById('startButton');
         const resultElement = document.getElementById('result');
         let codeReader;
         let stream;
 
-        startButton.addEventListener('click', async () => {
+        async function startScanning() {
             resultElement.textContent = 'Запуск камеры...';
             try {
-                // Проверяем наличие медиаустройств
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                const videoDevices = devices.filter(device => device.kind === 'videoinput');
-
-                if (videoDevices.length === 0) {
-                    resultElement.textContent = 'Камера не найдена.';
-                    tg.showAlert('Камера не найдена на вашем устройстве.');
-                    return;
-                }
-
-                // Инициализируем сканер
-                codeReader = new ZXing.BrowserMultiFormatReader();
-
-                // Запрашиваем доступ к камере (используем первый видеовход)
-                stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: videoDevices[0].deviceId } });
-
-                // Отображаем видеопоток
-                videoElement.srcObject = stream;
-                videoElement.play();
-
-                resultElement.textContent = 'Наведите камеру на штрих-код или QR-код';
-                startButton.style.display = 'none'; // Скрываем кнопку после запуска
-
-                // Начинаем декодирование видеопотока
-                codeReader.decodeFromStream(stream, videoElement, (result, error) => {
-                    if (result) {
-                        console.log('Отсканировано:', result.getText());
-                        resultElement.textContent = `Отсканировано: ${result.getText()}`;
-                        // Отправляем данные обратно в бот
-                        tg.sendData(result.getText());
-                        // Можно закрыть веб-приложение после первого успешного сканирования
-                        tg.close();
-                    }
-                    if (error && !(error instanceof ZXing.NotFoundException)) {
-                        console.error(error);
-                        //resultElement.textContent = `Ошибка сканирования: ${error}`;
-                        // Не показываем alert на каждую ошибку сканирования (например, NotFoundException)
+                // Запрашиваем доступ к основной (средовой) камере
+                // Если не получится, попробуем просто запросить любое видеоустройство
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment'
                     }
                 });
 
+                // Если получили поток, инициализируем сканер
+                codeReader = new ZXing.BrowserMultiFormatReader();
+
+                // Отображаем видеопоток
+                videoElement.srcObject = stream;
+                // Убедимся, что видео полностью загружено перед началом сканирования
+                videoElement.onloadedmetadata = () => {
+                    videoElement.play();
+                    resultElement.textContent = 'Наведите камеру на штрих-код или QR-код';
+                    // Начинаем декодирование видеопотока
+                    codeReader.decodeFromStream(stream, videoElement, (result, error) => {
+                        if (result) {
+                            console.log('Отсканировано:', result.getText());
+                            resultElement.textContent = `Отсканировано: ${result.getText()}`;
+                            // Отправляем данные обратно в бот
+                            tg.sendData(result.getText());
+                            // Можно закрыть веб-приложение после первого успешного сканирования
+                            tg.close();
+                        }
+                        // Не показываем alert на каждую ошибку сканирования (например, NotFoundException)
+                        if (error && !(error instanceof ZXing.NotFoundException)) {
+                            console.error(error);
+                        }
+                    });
+                };
+
             } catch (error) {
                 console.error('Ошибка при доступе к камере или запуске сканера:', error);
-                resultElement.textContent = `Ошибка: ${error}`;
-                tg.showAlert(`Не удалось получить доступ к камере: ${error}`);
+                resultElement.textContent = `Ошибка: ${error.name} - ${error.message}`;
+                tg.showAlert(`Не удалось получить доступ к камере: ${error.message}`);
+                // Если ошибка из-за facingMode, можно попробовать запросить любую камеру
+                if (error.name === 'OverconstrainedError' || error.name === 'NotFoundError') {
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                        // Повторяем логику отображения и сканирования для fallback
+                        videoElement.srcObject = stream;
+                        videoElement.onloadedmetadata = () => {
+                            videoElement.play();
+                            resultElement.textContent = 'Наведите камеру на штрих-код или QR-код (используется камера по умолчанию)';
+                            codeReader = new ZXing.BrowserMultiFormatReader();
+                            codeReader.decodeFromStream(stream, videoElement, (result, error) => {
+                                if (result) {
+                                    console.log('Отсканировано:', result.getText());
+                                    resultElement.textContent = `Отсканировано: ${result.getText()}`;
+                                    tg.sendData(result.getText());
+                                    tg.close();
+                                }
+                                if (error && !(error instanceof ZXing.NotFoundException)) {
+                                    console.error(error);
+                                }
+                            });
+                        };
+                    } catch (fallbackError) {
+                        console.error('Ошибка при попытке получить камеру по умолчанию:', fallbackError);
+                        resultElement.textContent = `Ошибка: ${fallbackError.name} - ${fallbackError.message}`;
+                        tg.showAlert(`Не удалось получить доступ даже к камере по умолчанию: ${fallbackError.message}`);
+                    }
+                }
             }
-        });
+        }
+
+        // Запускаем сканирование автоматически при загрузке страницы
+        window.onload = startScanning;
 
         // Останавливаем камеру и сканирование при закрытии веб-приложения
-        tg.onEvent('mainButtonBackPressed', () => {
+        function stopStreaming() {
             if (stream) {
+                console.log('Остановка потока камеры');
                 stream.getTracks().forEach(track => track.stop());
+                stream = null; // Очищаем ссылку
             }
             if (codeReader) {
+                console.log('Сброс сканера');
                 codeReader.reset();
+                codeReader = null; // Очищаем ссылку
             }
-        });
-        tg.onEvent('viewportChanged', () => {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
-            if (codeReader) {
-                codeReader.reset();
-            }
-        });
+        }
 
-        // Возможно, также нужно остановить при других событиях закрытия
-        window.addEventListener('beforeunload', () => {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
-            if (codeReader) {
-                codeReader.reset();
-            }
-        });
+        tg.onEvent('mainButtonBackPressed', stopStreaming);
+        tg.onEvent('viewportChanged', stopStreaming); // На всякий случай, может сработать при изменениях размера/ориентации
+        window.addEventListener('beforeunload', stopStreaming);
+        tg.onEvent('popupClosed', stopStreaming); // Добавляем обработку закрытия через Popup
 
     </script>
 </body>
