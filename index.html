@@ -3,190 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR/Barcode Scanner</title>
+    <title>Сканер штрих-кодов и QR-кодов</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
     <style>
         body {
-            font-family: Arial, sans-serif;
             margin: 0;
-            padding: 20px;
-            background-color: var(--tg-theme-bg-color, #ffffff);
-            color: var(--tg-theme-text-color, #000000);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: var(--tg-theme-bg-color, white);
+            color: var(--tg-theme-text-color, black);
         }
-        .container {
-            max-width: 600px;
-            width: 100%;
+        #app {
+            max-width: 100%;
             margin: 0 auto;
+            padding: 20px;
             text-align: center;
         }
-        #scanner-container {
-            width: 100%;
-            max-width: 500px;
-            position: relative;
+        h1 {
+            color: var(--tg-theme-text-color, black);
             margin-bottom: 20px;
         }
-        video {
-            width: 100%;
-            height: auto;
-            display: block;
-            border: 1px solid red;
+        #status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: var(--tg-theme-secondary-bg-color, #f0f0f0);
         }
-        #controls {
-            margin-top: 10px;
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-        }
-        button {
-            background-color: var(--tg-theme-button-color, #2481cc);
-            color: var(--tg-theme-button-text-color, #ffffff);
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 16px;
-            cursor: pointer;
-        }
-        #result {
+        #version-info {
             margin-top: 20px;
-            font-size: 1.1em;
-            word-wrap: break-word;
-        }
-         #version-info {
             font-size: 0.8em;
-            color: var(--tg-theme-hint-color, #888);
-            margin-top: 10px;
-         }
+            color: var(--tg-theme-hint-color, #666);
+        }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div id="app">
         <h1>Сканер штрих-кодов и QR-кодов</h1>
-        <div id="scanner-container">
-            <video id="video" width="500" height="375" playsinline></video>
-        </div>
-        <div id="controls">
-            <button id="switchCameraButton" disabled>Переключить камеру</button>
-        </div>
-        <div id="result">Инициализация...</div>
-         <p id="version-info">Версия: 0.03</p>
+        <div id="status">Нажмите кнопку "Сканировать" для начала работы</div>
+        <div id="version-info">Версия: 0.04</div>
     </div>
 
     <script>
-        const tg = window.Telegram.WebApp;
-        tg.expand();
+        const app = {
+            data() {
+                return {
+                    is_telegram_client: false,
+                    is_telegram_api_updated: false,
+                    code: null,
+                    is_url: false,
+                    url: null,
+                    status: 'Нажмите кнопку "Сканировать" для начала работы'
+                }
+            },
+            created() {
+                // Инициализация Telegram Web App
+                this.TWA = window.Telegram.WebApp;
+                
+                // Настройка кнопки
+                this.TWA.MainButton.setText("Сканировать");
+                this.TWA.onEvent('qrTextReceived', this.processQRCode);
+                this.TWA.onEvent('mainButtonClicked', this.showQRScanner);
 
-        const videoElement = document.getElementById('video');
-        const switchCameraButton = document.getElementById('switchCameraButton');
-        const resultElement = document.getElementById('result');
-        let codeReader;
-        let stream;
-        let videoDevices = [];
-        let currentDeviceId = null;
-        let currentDeviceIndex = -1;
+                // Проверка версии API
+                this.is_telegram_api_updated = this.TWA.isVersionAtLeast('6.4');
+                this.is_telegram_client = this.TWA.platform !== "unknown";
 
-        function stopStreaming() {
-            if (stream) {
-                console.log('Остановка потока камеры');
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
-            if (codeReader) {
-                console.log('Сброс сканера');
-                codeReader.reset();
-                codeReader = null;
-            }
-            videoElement.srcObject = null;
-        }
-
-        async function startScanning(deviceId) {
-            stopStreaming();
-
-            console.log('Начало функции startScanning');
-            resultElement.textContent = 'Запрос доступа к камере...';
-
-            try {
-                console.log('Вызов navigator.mediaDevices.getUserMedia({ video: true }) или с facingMode: user');
-                const constraints = {
-                    video: {
-                        deviceId: deviceId ? { exact: deviceId } : undefined
-                    }
-                };
-
-                if (!deviceId) {
-                    constraints.video.facingMode = 'user';
+                if (this.is_telegram_client && this.is_telegram_api_updated) {
+                    this.TWA.MainButton.show();
                 } else {
-                    delete constraints.video.facingMode;
+                    this.status = 'Пожалуйста, обновите Telegram для использования приложения!';
                 }
+            },
+            mounted() {
+                this.TWA.ready();
+            },
+            methods: {
+                showQRScanner() {
+                    const params = { text: "" };
+                    this.TWA.showScanQrPopup(params);
+                    this.status = 'Наведите камеру на штрих-код или QR-код';
+                },
+                processQRCode(data) {
+                    this.code = data.data;
+                    this.status = `Отсканировано: ${this.code}`;
+                    
+                    // Проверка на URL
+                    try {
+                        new URL(this.code);
+                        this.is_url = true;
+                        this.url = this.code;
+                    } catch {
+                        this.is_url = false;
+                        this.url = null;
+                    }
 
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-                console.log('Доступ к камере получен');
-                resultElement.textContent = 'Доступ к камере получен, подготовка видеопотока...';
-
-                if (!codeReader) {
-                    console.log('Инициализация ZXing.BrowserMultiFormatReader');
-                    codeReader = new ZXing.BrowserMultiFormatReader();
+                    // Вибрация при успешном сканировании
+                    this.TWA.HapticFeedback.impactOccurred("heavy");
+                    this.TWA.closeScanQrPopup();
                 }
-
-                console.log('Установка videoElement.srcObject');
-                videoElement.srcObject = stream;
-
-                videoElement.addEventListener('loadeddata', () => {
-                    console.log('Данные видео загружены, попытка воспроизведения...');
-                    videoElement.play();
-
-                    console.log('Видео воспроизводится.');
-                    resultElement.textContent = 'Наведите камеру на штрих-код или QR-код';
-
-                    console.log('Запуск декодирования из видеопотока');
-                    codeReader.decodeFromStream(stream, videoElement, (result, error) => {
-                        if (result) {
-                            console.log('Отсканировано успешно:', result.getText());
-                            resultElement.textContent = `Отсканировано: ${result.getText()}`;
-                            tg.sendData(result.getText());
-                            tg.close();
-                        }
-                        if (error && !(error instanceof ZXing.NotFoundException)) {
-                            console.error('Ошибка сканирования:', error);
-                        }
-                    });
-                }, { once: true });
-
-                videoElement.onerror = (event) => {
-                    console.error('Ошибка видеоэлемента:', event);
-                    resultElement.textContent = 'Ошибка видеопотока.';
-                    tg.showAlert('Ошибка видеопотока. Попробуйте перезагрузить страницу.');
-                };
-
-            } catch (error) {
-                console.error('Ошибка при доступе к камере:', error);
-                resultElement.textContent = `Ошибка при доступе к камере: ${error.name} - ${error.message}`;
-                tg.showAlert(`Не удалось получить доступ к камере: ${error.message}. Пожалуйста, проверьте разрешения и попробуйте снова.`);
             }
-            console.log('Конец функции startScanning');
-        }
-
-        window.onload = async () => {
-            console.log('Начало window.onload');
-            resultElement.textContent = 'Инициализация...';
-            startScanning();
-            console.log('Конец window.onload');
         };
 
-        function setupCleanupEvents() {
-            console.log('Настройка обработчиков cleanup событий');
-            tg.onEvent('mainButtonBackPressed', stopStreaming);
-            tg.onEvent('viewportChanged', stopStreaming);
-            window.addEventListener('beforeunload', stopStreaming);
-            tg.onEvent('popupClosed', stopStreaming);
-        }
-
-        setupCleanupEvents();
-
+        // Создание и монтирование приложения
+        const { createApp } = Vue;
+        createApp(app).mount('#app');
     </script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
 </body>
 </html> 
